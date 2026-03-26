@@ -1,0 +1,26 @@
+{
+  "manifest_version": 2,
+  "name": "Tab Dedup - 重复标签页检测",
+  "version": "3.2.0",
+  "description": "检测并关闭重复标签页，支持批量操作和预览",
+  "permissions": [
+    "tabs",
+    "notifications",
+    "activeTab",
+    "<all_urls>"
+  ],
+  "browser_action": {
+    "default_title": "Tab Dedup",
+    "default_icon": {
+      "48": "icons/icon-48.svg"
+    },
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "icons": {
+    "48": "icons/icon-48.svg"
+  }
+}

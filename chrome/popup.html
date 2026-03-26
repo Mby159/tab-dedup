@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Tab Dedup</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:460px;max-height:640px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1c1c1e;color:#f5f5f7;overflow:hidden;font-size:12px}
+.header{display:flex;align-items:center;justify-content:space-between;padding:13px 16px 9px;border-bottom:1px solid #3a3a3c}
+.header-title{font-size:15px;font-weight:600}
+.header-actions{display:flex;gap:6px}
+.btn{padding:4px 10px;border:none;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500;transition:background .15s;font-family:inherit}
+.btn-ghost{background:transparent;color:#0a84ff}
+.btn-ghost:hover{background:rgba(10,132,255,.12)}
+.btn-danger{background:rgba(255,69,58,.15);color:#ff453a}
+.btn-danger:hover{background:rgba(255,69,58,.25)}
+.btn-small{padding:1px 7px;font-size:11px}
+.summary-bar{display:flex;align-items:center;gap:8px;padding:8px 16px;font-size:12px;color:#8e8e93;border-bottom:1px solid #2c2c2e}
+.badge{border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600}
+.badge-red{background:rgba(255,69,58,.2);color:#ff453a}
+.badge-green{background:rgba(48,209,88,.2);color:#30d158}
+.tab-list{overflow-y:auto;max-height:calc(640px - 110px);padding:6px 0}
+.tab-list::-webkit-scrollbar{width:5px}
+.tab-list::-webkit-scrollbar-track{background:transparent}
+.tab-list::-webkit-scrollbar-thumb{background:#3a3a3c;border-radius:3px}
+.tab-group{margin-bottom:5px}
+.tab-group-header{display:flex;align-items:center;padding:5px 16px;background:#2c2c2e;gap:6px}
+.tab-group.single .tab-group-header{background:#1e1e20}
+.tab-group-title{font-size:11.5px;font-weight:600;color:#8e8e93;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.tab-group.single .tab-group-title{color:#5a5a5e}
+.tab-group-count{background:rgba(255,69,58,.2);color:#ff453a;font-size:11px;font-weight:700;border-radius:10px;padding:1px 7px;flex-shrink:0}
+.tab-item{display:flex;align-items:center;gap:8px;padding:7px 16px 7px 20px;border-bottom:1px solid #1e1e20;cursor:pointer;transition:background .1s;user-select:none}
+.tab-item:last-child{border-bottom:none}
+.tab-item:hover{background:rgba(255,255,255,.06)}
+.tab-item.active{background:rgba(10,132,255,.08)}
+.tab-favicon{width:16px;height:16px;border-radius:3px;flex-shrink:0;background:#3a3a3c;object-fit:contain}
+.tab-info{flex:1;min-width:0}
+.tab-title{font-size:12.5px;color:#e5e5ea;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tab-url{font-size:10.5px;color:#636366;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.tab-actions{display:flex;flex-shrink:0}
+.close-btn{width:22px;height:22px;border:none;border-radius:5px;background:transparent;color:#5a5a5e;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .12s;flex-shrink:0;opacity:0}
+.tab-item:hover .close-btn{opacity:1}
+.close-btn:hover{background:rgba(255,69,58,.2);color:#ff453a}
+.active-tag{font-size:10px;background:rgba(48,209,88,.2);color:#30d158;border-radius:4px;padding:1px 5px;margin-left:4px}
+#tab-preview{position:fixed;z-index:99999;width:300px;background:#252527;border:1px solid #3a3a3c;border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.55);pointer-events:none;display:none;opacity:0;transition:opacity .15s;overflow:hidden}
+#preview-loading{width:100%;height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#8e8e93;font-size:12px}
+.mini-spinner{width:18px;height:18px;border:2px solid #3a3a3c;border-top-color:#0a84ff;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#preview-img-wrap{width:100%;height:180px;overflow:hidden;background:#1c1c1e;display:none}
+#preview-img{width:100%;height:100%;object-fit:cover;display:block}
+#preview-info{padding:7px 10px 9px;border-top:1px solid #3a3a3c}
+#preview-title{font-size:12px;font-weight:600;color:#f5f5f7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:2px}
+#preview-url{font-size:10px;color:#8e8e93;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty-state{text-align:center;padding:40px 20px;color:#8e8e93}
+.empty-state .icon{font-size:36px;margin-bottom:10px}
+.empty-state .msg{font-size:14px}
+.loading{text-align:center;padding:40px;color:#8e8e93;font-size:13px}
+.spinner{width:20px;height:20px;border:2px solid #3a3a3c;border-top-color:#0a84ff;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 10px}
+</style>
+</head>
+<body>
+<div class="header"><span class="header-title">🔴 Tab Dedup</span><div class="header-actions" id="ha"></div></div>
+<div class="summary-bar" id="sb"><span>加载中...</span></div>
+<div class="tab-list" id="tl"><div class="loading"><div class="spinner"></div><span>正在扫描标签页...</span></div></div>
+<div id="tab-preview">
+  <div id="preview-loading"><div class="mini-spinner"></div><span id="preview-status">加载中...</span></div>
+  <div id="preview-img-wrap"><img id="preview-img" alt=""></div>
+  <div id="preview-info"><div id="preview-title"></div><div id="preview-url"></div></div>
+</div>
+<script src="popup.js"></script>
+</body>
+</html>
