@@ -1,16 +1,33 @@
-// Tab Dedup popup.js v4 (Chrome Manifest V3)
+// Tab Dedup popup.js v4.1 (Chrome Manifest V3) - 分组选项 + 徽章
 (function() {
 'use strict';
 
-var allTabs = [], tabGroups = [], dupGroups = [];
+var allTabs = [], tabGroups = [], dupGroups = [], currentGroupBy = 'full';
+var GROUPS = [
+  { id: 'full', label: '完整 URL', desc: '完全相同的页面' },
+  { id: 'domain', label: '按域名', desc: '同一网站的所有页面' },
+  { id: 'root', label: '按根域名', desc: '同一主域名的所有子页面' }
+];
 
-function nu(u) {
-  try { var x = new URL(u); return (x.hostname.replace(/^www\./,'') + x.pathname.replace(/\/$/,'')).toLowerCase(); }
-  catch (e) { return u.toLowerCase(); }
+function nu(u, groupBy) {
+  try {
+    var x = new URL(u);
+    if (groupBy === 'domain') {
+      return x.hostname.replace(/^www\./, '').toLowerCase();
+    } else if (groupBy === 'root') {
+      var parts = x.hostname.replace(/^www\./, '').split('.');
+      return parts.slice(-2).join('.') + x.pathname.replace(/\/$/, '').toLowerCase();
+    }
+    return (x.hostname.replace(/^www\./, '') + x.pathname.replace(/\/$/, '')).toLowerCase();
+  } catch (e) {
+    return u.toLowerCase();
+  }
 }
 function gd(u) {
-  try { return new URL(u).hostname.replace(/^www\./,''); }
-  catch (e) { return u; }
+  try {
+    var x = new URL(u);
+    return x.hostname.replace(/^www\./, '') + (x.port ? ':' + x.port : '');
+  } catch (e) { return u; }
 }
 function esc(s) {
   if (!s) return '';
@@ -19,7 +36,6 @@ function esc(s) {
   return d.innerHTML;
 }
 
-// 向 background 请求标签页数据
 function loadTabsFromBackground() {
   chrome.runtime.sendMessage({ type: 'refresh' }, function(resp) {
     if (chrome.runtime.lastError) {
@@ -30,12 +46,14 @@ function loadTabsFromBackground() {
       document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>获取失败</div></div>';
       return;
     }
+    currentGroupBy = resp.groupBy || 'full';
     allTabs = resp.tabs.filter(function(t) {
       return t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('about:');
     });
+
     var g = {};
     allTabs.forEach(function(t) {
-      var k = nu(t.url);
+      var k = nu(t.url, currentGroupBy);
       if (!g[k]) g[k] = [];
       g[k].push(t);
     });
@@ -46,7 +64,24 @@ function loadTabsFromBackground() {
   });
 }
 
-// 关闭一组重复（保留第一个）
+function changeGroupBy(newGroupBy) {
+  chrome.runtime.sendMessage({ type: 'setGroupBy', groupBy: newGroupBy }, function(resp) {
+    if (resp && resp.dups) {
+      currentGroupBy = resp.groupBy || newGroupBy;
+      var grp = {};
+      allTabs.forEach(function(t) {
+        var k = nu(t.url, currentGroupBy);
+        if (!grp[k]) grp[k] = [];
+        grp[k].push(t);
+      });
+      dupGroups = Object.values(grp).filter(function(x) { return x.length > 1; });
+      var sg = Object.values(grp).filter(function(x) { return x.length === 1; });
+      tabGroups = dupGroups.concat(sg);
+      render();
+    }
+  });
+}
+
 function closeGroup(gi) {
   var g = tabGroups[gi];
   if (!g || g.length <= 1) return;
@@ -56,19 +91,16 @@ function closeGroup(gi) {
   });
 }
 
-// 关闭单个标签页
 function closeSingleTab(id) {
   chrome.tabs.remove(id, function() {
     setTimeout(loadTabsFromBackground, 300);
   });
 }
 
-// 跳转到标签页
 function goToTab(id) {
   chrome.tabs.update(id, { active: true }).catch(function() {});
 }
 
-// 截图预览
 function showPreview(tab, rect) {
   var p = document.getElementById('tab-preview');
   var iw = document.getElementById('preview-img-wrap');
@@ -116,16 +148,32 @@ function hidePreview() {
   setTimeout(function() { p.style.display = 'none'; }, 150);
 }
 
-// 渲染
 function render() {
   var tl = document.getElementById('tl');
   var sb = document.getElementById('sb');
   var ha = document.getElementById('ha');
   var totalDup = dupGroups.reduce ? dupGroups.reduce(function(s, g) { return s + g.length; }, 0) : 0;
 
-  sb.innerHTML = totalDup === 0
+  var groupOpts = '';
+  GROUPS.forEach(function(g) {
+    groupOpts += '<button class="opt-btn' + (currentGroupBy === g.id ? ' active' : '') + '" data-gb="' + g.id + '" title="' + esc(g.desc) + '">' + g.label + '</button>';
+  });
+
+  sb.innerHTML = '<div class="group-opts">' + groupOpts + '</div>' + (totalDup === 0
     ? '<span class="badge badge-green">✅ 无重复</span><span>共 ' + allTabs.length + ' 个标签页</span>'
-    : '<span class="badge badge-red">🔴 ' + dupGroups.length + ' 组重复</span><span>' + totalDup + ' 个重复</span>';
+    : '<span class="badge badge-red">🔴 ' + dupGroups.length + ' 组重复</span><span>' + totalDup + ' 个重复</span>');
+
+  var optBtns = sb.querySelectorAll('.opt-btn');
+  for (var oi = 0; oi < optBtns.length; oi++) {
+    (function(btn) {
+      btn.onclick = function() {
+        var gb = btn.dataset.gb;
+        optBtns.forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        changeGroupBy(gb);
+      };
+    })(optBtns[oi]);
+  }
 
   if (dupGroups.length > 0) {
     ha.innerHTML = '<button class="btn btn-danger" id="closeAllBtn">关闭全部重复</button><button class="btn btn-ghost" id="collapseBtn">折叠</button>';
@@ -168,7 +216,6 @@ function render() {
   }
   tl.innerHTML = h;
 
-  // 关闭组按钮
   var btns = tl.querySelectorAll('.close-group-btn');
   for (var i = 0; i < btns.length; i++) {
     (function(btn) {
@@ -176,7 +223,6 @@ function render() {
     })(btns[i]);
   }
 
-  // 每行事件
   var items = tl.querySelectorAll('.tab-item');
   for (var j = 0; j < items.length; j++) {
     (function(item) {
@@ -201,7 +247,6 @@ function render() {
   }
 }
 
-// 关闭全部重复
 function closeAllDup() {
   var ids = [];
   dupGroups.forEach(function(g) {
@@ -214,7 +259,6 @@ function closeAllDup() {
   }
 }
 
-// 折叠/展开
 var collapsed = false;
 function toggleCollapse() {
   var items = document.getElementById('tl').querySelectorAll('.tab-group-items');

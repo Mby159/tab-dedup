@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Tab Dedup - 重复标签页检测",
-  "version": "3.2.0",
-  "description": "检测并关闭重复标签页，支持批量操作和预览",
+  "version": "4.1.0",
+  "description": "检测并关闭重复标签页，支持批量操作、预览和智能分组",
   "permissions": [
     "tabs",
-    "notifications"
+    "notifications",
+    "storage"
   ],
   "host_permissions": [
     "<all_urls>"
