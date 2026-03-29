@@ -4,17 +4,28 @@
 var _cachedTabs = [];
 var _groupBy = 'full';
 
+// 对搜索类页面有意义的查询参数
+var SEARCH_PARAMS = ['q', 'query', 'keyword', 'search', 'wd', 'kw', 'k', 's', 'text', 'word'];
+
 // 规范化 URL 分组
 function nu(u, groupBy) {
   try {
     var x = new URL(u);
+    var host = x.hostname.replace(/^www\./, '').toLowerCase();
+    var path = x.pathname.replace(/\/$/, '').toLowerCase();
     if (groupBy === 'domain') {
-      return x.hostname.replace(/^www\./, '').toLowerCase();
+      return host;
     } else if (groupBy === 'root') {
-      var parts = x.hostname.replace(/^www\./, '').split('.');
-      return parts.slice(-2).join('.') + x.pathname.replace(/\/$/, '').toLowerCase();
+      var parts = host.split('.');
+      return parts.slice(-2).join('.') + path;
     }
-    return (x.hostname.replace(/^www\./, '') + x.pathname.replace(/\/$/, '')).toLowerCase();
+    // full 模式：额外附加搜索类关键参数
+    var extra = '';
+    SEARCH_PARAMS.forEach(function(p) {
+      var v = x.searchParams.get(p);
+      if (v) extra += '|' + p + '=' + v.toLowerCase();
+    });
+    return host + path + extra;
   } catch (e) {
     return u.toLowerCase();
   }

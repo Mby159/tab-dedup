@@ -17,13 +17,13 @@ body{width:460px;max-height:640px;font-family:-apple-system,BlinkMacSystemFont,'
 .btn-small{padding:1px 7px;font-size:11px}
 .summary-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 16px;font-size:12px;color:#8e8e93;border-bottom:1px solid #2c2c2e}
 .group-opts{display:flex;gap:4px;width:100%;margin-bottom:4px}
-.badge{border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;flex-shrink:0}
-.badge-red{background:rgba(255,69,58,.2);color:#ff453a}
-.badge-green{background:rgba(48,209,88,.2);color:#30d158}
 .opt-btn{padding:2px 8px;border:1px solid #3a3a3c;border-radius:12px;background:transparent;color:#8e8e93;font-size:11px;cursor:pointer;transition:all .15s;font-family:inherit}
 .opt-btn:hover{border-color:#636366;color:#e5e5ea}
 .opt-btn.active{background:rgba(10,132,255,.2);border-color:#0a84ff;color:#0a84ff}
-.tab-list{overflow-y:auto;max-height:calc(640px - 110px);padding:6px 0}
+.badge{border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;flex-shrink:0}
+.badge-red{background:rgba(255,69,58,.2);color:#ff453a}
+.badge-green{background:rgba(48,209,88,.2);color:#30d158}
+.tab-list{overflow-y:auto;max-height:calc(640px - 120px);padding:6px 0}
 .tab-list::-webkit-scrollbar{width:5px}
 .tab-list::-webkit-scrollbar-track{background:transparent}
 .tab-list::-webkit-scrollbar-thumb{background:#3a3a3c;border-radius:3px}
@@ -71,6 +71,251 @@ body{width:460px;max-height:640px;font-family:-apple-system,BlinkMacSystemFont,'
   <div id="preview-img-wrap"><img id="preview-img" alt=""></div>
   <div id="preview-info"><div id="preview-title"></div><div id="preview-url"></div></div>
 </div>
-<script src="popup.js"></script>
+<script>
+// Tab Dedup v4.2 - 完全内联，无外部依赖
+(function() {
+'use strict';
+
+var allTabs = [], tabGroups = [], dupGroups = [], currentGroupBy = 'full';
+var GROUPS = [
+  { id: 'full', label: '完整 URL', desc: '完全相同的页面' },
+  { id: 'domain', label: '按域名', desc: '同一网站的所有页面' },
+  { id: 'root', label: '按根域名', desc: '同一主域名的所有子页面' }
+];
+var SEARCH_PARAMS = ['q', 'query', 'keyword', 'search', 'wd', 'kw', 'k', 's', 'text', 'word'];
+
+function nu(u, groupBy) {
+  try {
+    var x = new URL(u);
+    var host = x.hostname.replace(/^www\./, '').toLowerCase();
+    var path = x.pathname.replace(/\/$/, '').toLowerCase();
+    if (groupBy === 'domain') return host;
+    if (groupBy === 'root') {
+      var parts = host.split('.');
+      return parts.slice(-2).join('.') + path;
+    }
+    var extra = '';
+    SEARCH_PARAMS.forEach(function(p) {
+      var v = x.searchParams.get(p);
+      if (v) extra += '|' + p + '=' + v.toLowerCase();
+    });
+    return host + path + extra;
+  } catch (e) { return u.toLowerCase(); }
+}
+
+function gd(u) {
+  try {
+    var x = new URL(u);
+    return x.hostname.replace(/^www\./, '') + (x.port ? ':' + x.port : '');
+  } catch (e) { return u; }
+}
+
+function esc(s) {
+  if (!s) return '';
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function loadTabs() {
+  browser.runtime.sendMessage({ type: 'refresh' }, function(resp) {
+    if (browser.runtime.lastError) {
+      document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>连接失败：' + esc(browser.runtime.lastError.message) + '</div></div>';
+      return;
+    }
+    if (!resp || !resp.tabs) {
+      document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>获取失败</div></div>';
+      return;
+    }
+    currentGroupBy = resp.groupBy || 'full';
+    allTabs = resp.tabs.filter(function(t) {
+      return t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('about:');
+    });
+    regroup();
+    render();
+  });
+}
+
+function regroup() {
+  var g = {};
+  allTabs.forEach(function(t) {
+    var k = nu(t.url, currentGroupBy);
+    if (!g[k]) g[k] = [];
+    g[k].push(t);
+  });
+  dupGroups = Object.values(g).filter(function(x) { return x.length > 1; });
+  var sg = Object.values(g).filter(function(x) { return x.length === 1; });
+  tabGroups = dupGroups.concat(sg);
+}
+
+function changeGroupBy(gb) {
+  browser.runtime.sendMessage({ type: 'setGroupBy', groupBy: gb }, function(resp) {
+    currentGroupBy = (resp && resp.groupBy) || gb;
+    regroup();
+    render();
+  });
+}
+
+function closeGroup(gi) {
+  var g = tabGroups[gi];
+  if (!g || g.length <= 1) return;
+  browser.runtime.sendMessage({ type: 'closeTabs', ids: g.slice(1).map(function(t) { return t.id; }) }, function() {
+    setTimeout(loadTabs, 300);
+  });
+}
+
+function closeSingle(id) {
+  browser.tabs.remove(id).then(function() { setTimeout(loadTabs, 300); });
+}
+
+function goTo(id) {
+  browser.tabs.update(id, { active: true }).catch(function() {});
+}
+
+function showPreview(id, url, title, rect) {
+  var p = document.getElementById('tab-preview');
+  var iw = document.getElementById('preview-img-wrap');
+  var img = document.getElementById('preview-img');
+  var le = document.getElementById('preview-loading');
+  var se = document.getElementById('preview-status');
+  document.getElementById('preview-title').textContent = title || '';
+  document.getElementById('preview-url').textContent = url;
+  le.style.display = 'flex'; iw.style.display = 'none'; img.src = '';
+  var top = rect.bottom + 8, left = rect.left;
+  if (left + 300 > window.innerWidth - 8) left = window.innerWidth - 308;
+  if (left < 8) left = 8;
+  if (top + 220 > window.innerHeight - 8) top = rect.top - 228;
+  p.style.cssText = 'display:block;opacity:1;top:' + top + 'px;left:' + left + 'px';
+  var done = false;
+  var timer = setTimeout(function() { done = true; se.textContent = '超时'; }, 8000);
+  browser.runtime.sendMessage({ type: 'captureTab', tabId: id }, function(resp) {
+    clearTimeout(timer);
+    if (done || !resp) return;
+    if (resp.dataUrl) { img.src = resp.dataUrl; iw.style.display = 'block'; le.style.display = 'none'; }
+    else { se.textContent = resp.error || '无法预览'; }
+  });
+}
+
+function hidePreview() {
+  var p = document.getElementById('tab-preview');
+  p.style.opacity = '0';
+  setTimeout(function() { p.style.display = 'none'; }, 150);
+}
+
+function closeAllDup() {
+  var ids = [];
+  dupGroups.forEach(function(g) { g.slice(1).forEach(function(t) { ids.push(t.id); }); });
+  if (ids.length) browser.tabs.remove(ids).then(function() { setTimeout(loadTabs, 300); });
+}
+
+var collapsed = false;
+function toggleCollapse() {
+  collapsed = !collapsed;
+  var items = document.getElementById('tl').querySelectorAll('.tab-group-items');
+  for (var i = 0; i < items.length; i++) items[i].style.display = collapsed ? 'none' : '';
+  var btn = document.getElementById('collapseBtn');
+  if (btn) btn.textContent = collapsed ? '展开' : '折叠';
+}
+
+function render() {
+  var tl = document.getElementById('tl');
+  var sb = document.getElementById('sb');
+  var ha = document.getElementById('ha');
+  var totalDup = dupGroups.reduce(function(s, g) { return s + g.length; }, 0);
+
+  // 分组选项
+  var opts = '';
+  GROUPS.forEach(function(g) {
+    opts += '<button class="opt-btn' + (currentGroupBy === g.id ? ' active' : '') + '" data-gb="' + g.id + '" title="' + esc(g.desc) + '">' + g.label + '</button>';
+  });
+  sb.innerHTML = '<div class="group-opts">' + opts + '</div>' +
+    (totalDup === 0
+      ? '<span class="badge badge-green">✅ 无重复</span><span>共 ' + allTabs.length + ' 个标签页</span>'
+      : '<span class="badge badge-red">🔴 ' + dupGroups.length + ' 组重复</span><span>' + totalDup + ' 个重复</span>');
+
+  var optBtns = sb.querySelectorAll('.opt-btn');
+  for (var oi = 0; oi < optBtns.length; oi++) {
+    (function(btn) {
+      btn.onclick = function() {
+        for (var i = 0; i < optBtns.length; i++) optBtns[i].classList.remove('active');
+        btn.classList.add('active');
+        changeGroupBy(btn.dataset.gb);
+      };
+    })(optBtns[oi]);
+  }
+
+  if (dupGroups.length > 0) {
+    ha.innerHTML = '<button class="btn btn-danger" id="caBtn">关闭全部重复</button><button class="btn btn-ghost" id="collapseBtn">折叠</button>';
+    document.getElementById('caBtn').onclick = closeAllDup;
+    document.getElementById('collapseBtn').onclick = toggleCollapse;
+  } else {
+    ha.innerHTML = '<button class="btn btn-ghost" id="rfBtn">刷新</button>';
+    document.getElementById('rfBtn').onclick = loadTabs;
+  }
+
+  if (!tabGroups.length) {
+    tl.innerHTML = '<div class=empty-state><div class=icon>📋</div><div class=msg>没有标签页</div></div>';
+    return;
+  }
+
+  var h = '';
+  for (var gi = 0; gi < tabGroups.length; gi++) {
+    var grp = tabGroups[gi], isDup = grp.length > 1;
+    h += '<div class="tab-group' + (isDup ? '' : ' single') + '">';
+    h += '<div class="tab-group-header">';
+    h += '<span class="tab-group-title">' + esc(gd(grp[0].url)) + ' · ' + esc(grp[0].title) + '</span>';
+    if (isDup) {
+      h += '<span class="tab-group-count">×' + grp.length + '</span>';
+      h += '<button class="btn btn-danger btn-small close-group-btn" data-gi="' + gi + '">关闭重复</button>';
+    }
+    h += '</div><div class="tab-group-items">';
+    for (var ti = 0; ti < grp.length; ti++) {
+      var t = grp[ti];
+      h += '<div class="tab-item' + (t.active ? ' active' : '') + '" data-id="' + t.id + '">' +
+        '<img class="tab-favicon" src="' + (t.favIconUrl || '') + '" onerror="this.style.display=\'none\'">' +
+        '<div class="tab-info"><div class="tab-title">' + esc(t.title) + (t.active ? ' <span class="active-tag">当前</span>' : '') + '</div>' +
+        '<div class="tab-url">' + esc(gd(t.url)) + '</div></div>' +
+        '<div class="tab-actions"><button class="close-btn">✕</button></div></div>';
+    }
+    h += '</div></div>';
+  }
+  tl.innerHTML = h;
+
+  // 关闭组按钮
+  var cgBtns = tl.querySelectorAll('.close-group-btn');
+  for (var ci = 0; ci < cgBtns.length; ci++) {
+    (function(btn) {
+      btn.onclick = function(e) { e.stopPropagation(); closeGroup(+btn.dataset.gi); };
+    })(cgBtns[ci]);
+  }
+
+  // 每行事件
+  var items = tl.querySelectorAll('.tab-item');
+  for (var ji = 0; ji < items.length; ji++) {
+    (function(item) {
+      var id = +item.dataset.id;
+      var urlEl = item.querySelector('.tab-url');
+      var titleEl = item.querySelector('.tab-title');
+      item.onclick = function(e) {
+        if (e.target.classList.contains('close-btn')) return;
+        goTo(id);
+      };
+      item.querySelector('.close-btn').onclick = function(e) { e.stopPropagation(); closeSingle(id); };
+      var hoverTimer = null;
+      item.onmouseenter = function() {
+        var rect = item.getBoundingClientRect();
+        hoverTimer = setTimeout(function() {
+          showPreview(id, urlEl.textContent, titleEl.textContent, rect);
+        }, 500);
+      };
+      item.onmouseleave = function() { clearTimeout(hoverTimer); hidePreview(); };
+    })(items[ji]);
+  }
+}
+
+// 启动
+loadTabs();
+})();
+</script>
 </body>
 </html>
