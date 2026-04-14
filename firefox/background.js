@@ -138,6 +138,14 @@ browser.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
     sendResponse({ groupBy: _groupBy });
     return true;
   }
+  if (msg.type === 'closeTab') {
+    browser.tabs.remove(msg.id).then(function() {
+      sendResponse({ ok: true });
+    }).catch(function(err) {
+      sendResponse({ error: err.message });
+    });
+    return true;
+  }
 });
 
 function captureTab(tabId, callback) {

@@ -105,13 +105,13 @@ function closeGroup(gi) {
 }
 
 function closeSingleTab(id) {
-  browser.tabs.remove(id).then(function() {
+  browser.runtime.sendMessage({ type: 'closeTab', id: id }, function() {
     setTimeout(loadTabsFromBackground, 300);
   });
 }
 
 function goToTab(id) {
-  browser.tabs.update(id, { active: true }).catch(function() {});
+  browser.runtime.sendMessage({ type: 'navigate', tabId: id }, function() {});
 }
 
 function showPreview(tab, rect) {
@@ -271,7 +271,7 @@ function closeAllDup() {
     g.slice(1).forEach(function(t) { ids.push(t.id); });
   });
   if (ids.length > 0) {
-    browser.tabs.remove(ids).then(function() {
+    browser.runtime.sendMessage({ type: 'closeTabs', ids: ids }, function() {
       setTimeout(loadTabsFromBackground, 300);
     });
   }
