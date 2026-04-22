@@ -56,12 +56,14 @@ function calcDups(tabs, groupBy) {
 // 更新图标徽章
 function updateBadge(tabs, groupBy) {
   var dups = calcDups(tabs, groupBy);
+  var api = browser.browserAction || browser.action;
+  if (!api) return dups;
   if (dups.length > 0) {
     var text = dups.length > 99 ? '99+' : String(dups.length);
-    browser.action.setBadgeText({ text: text });
-    browser.action.setBadgeBackgroundColor({ color: '#ff453a' });
+    api.setBadgeText({ text: text });
+    api.setBadgeBackgroundColor({ color: '#ff453a' });
   } else {
-    browser.action.setBadgeText({ text: '' });
+    api.setBadgeText({ text: '' });
   }
   return dups;
 }
