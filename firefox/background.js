@@ -1,6 +1,8 @@
-// background.js - Tab Dedup v4.1
+// background.js - Tab Dedup v4.4
 // 负责：查询标签页、截图、关闭标签页、图标徽章
-// popup 通过 postMessage 通信
+// popup 通过 runtime.sendMessage 通信
+
+console.log('[Tab Dedup] background.js 已加载');
 
 var _cachedTabs = [];
 var _groupBy = 'full'; // 'full' | 'domain' | 'root'
