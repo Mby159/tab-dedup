@@ -1,6 +1,8 @@
-// Tab Dedup popup.js v4.1 - 分组选项 + 徽章
+// Tab Dedup popup.js v4.4
 (function() {
 'use strict';
+
+alert('[Tab Dedup] popup JS 已启动');
 
 var allTabs = [], tabGroups = [], dupGroups = [], currentGroupBy = 'full';
 var GROUPS = [
@@ -8,8 +10,6 @@ var GROUPS = [
   { id: 'domain', label: '按域名', desc: '同一网站的所有页面' },
   { id: 'root', label: '按根域名', desc: '同一主域名的所有子页面' }
 ];
-
-// 对搜索类页面有意义的查询参数
 var SEARCH_PARAMS = ['q', 'query', 'keyword', 'search', 'wd', 'kw', 'k', 's', 'text', 'word'];
 
 function nu(u, groupBy) {
@@ -17,28 +17,16 @@ function nu(u, groupBy) {
     var x = new URL(u);
     var host = x.hostname.replace(/^www\./, '').toLowerCase();
     var path = x.pathname.replace(/\/$/, '').toLowerCase();
-    if (groupBy === 'domain') {
-      return host;
-    } else if (groupBy === 'root') {
-      var parts = host.split('.');
-      return parts.slice(-2).join('.') + path;
-    }
-    // full 模式：额外附加搜索类关键参数
+    if (groupBy === 'domain') return host;
+    if (groupBy === 'root') { var parts = host.split('.'); return parts.slice(-2).join('.') + path; }
     var extra = '';
-    SEARCH_PARAMS.forEach(function(p) {
-      var v = x.searchParams.get(p);
-      if (v) extra += '|' + p + '=' + v.toLowerCase();
-    });
+    SEARCH_PARAMS.forEach(function(p) { var v = x.searchParams.get(p); if (v) extra += '|' + p + '=' + v.toLowerCase(); });
     return host + path + extra;
-  } catch (e) {
-    return u.toLowerCase();
-  }
+  } catch(e) { return u.toLowerCase(); }
 }
 function gd(u) {
-  try {
-    var x = new URL(u);
-    return x.hostname.replace(/^www\./, '') + (x.port ? ':' + x.port : '');
-  } catch (e) { return u; }
+  try { var x = new URL(u); return x.hostname.replace(/^www\./, '') + (x.port ? ':' + x.port : ''); }
+  catch(e) { return u; }
 }
 function esc(s) {
   if (!s) return '';
@@ -47,110 +35,90 @@ function esc(s) {
   return d.innerHTML;
 }
 
-function loadTabsFromBackground() {
+function loadTabs() {
+  console.log('[Tab Dedup] loadTabs 开始');
+  document.getElementById('sb').innerHTML = '<span>正在连接 background...</span>';
+  
+  var timeout = setTimeout(function() {
+    console.error('[Tab Dedup] sendMessage 超时');
+    document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>连接 background 超时，请重新加载插件</div></div>';
+  }, 5000);
+  
   browser.runtime.sendMessage({ type: 'refresh' }, function(resp) {
-    if (browser.runtime.lastError) {
-      document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>连接失败：' + esc(browser.runtime.lastError.message) + '</div></div>';
-      return;
-    }
-    if (!resp || !resp.tabs) {
-      document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>获取失败</div></div>';
+    clearTimeout(timeout);
+    console.log('[Tab Dedup] 收到响应:', resp, 'lastError:', browser.runtime.lastError);
+    if (browser.runtime.lastError || !resp || !resp.tabs) {
+      document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>获取失败: ' + (browser.runtime.lastError ? browser.runtime.lastError.message : '无响应') + '</div></div>';
       return;
     }
     currentGroupBy = resp.groupBy || 'full';
-    allTabs = resp.tabs.filter(function(t) {
-      return t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('about:');
-    });
-
-    // 分组
-    var g = {};
-    allTabs.forEach(function(t) {
-      var k = nu(t.url, currentGroupBy);
-      if (!g[k]) g[k] = [];
-      g[k].push(t);
-    });
-    dupGroups = Object.values(g).filter(function(x) { return x.length > 1; });
-    var sg = Object.values(g).filter(function(x) { return x.length === 1; });
-    tabGroups = dupGroups.concat(sg);
+    allTabs = resp.tabs.filter(function(t) { return t.url && !t.url.startsWith('about:') && !t.url.startsWith('moz-extension://'); });
+    buildGroups();
     render();
   });
 }
 
-function changeGroupBy(newGroupBy) {
-  browser.runtime.sendMessage({ type: 'setGroupBy', groupBy: newGroupBy }, function(resp) {
-    if (resp && resp.dups) {
-      currentGroupBy = resp.groupBy || newGroupBy;
-      // 重新计算分组
-      var grp = {};
-      allTabs.forEach(function(t) {
-        var k = nu(t.url, currentGroupBy);
-        if (!grp[k]) grp[k] = [];
-        grp[k].push(t);
-      });
-      dupGroups = Object.values(grp).filter(function(x) { return x.length > 1; });
-      var sg = Object.values(grp).filter(function(x) { return x.length === 1; });
-      tabGroups = dupGroups.concat(sg);
-      render();
-    }
+function buildGroups() {
+  var g = {};
+  allTabs.forEach(function(t) {
+    var k = nu(t.url, currentGroupBy);
+    if (!g[k]) g[k] = [];
+    g[k].push(t);
   });
+  dupGroups = Object.values(g).filter(function(x) { return x.length > 1; });
+  var sg = Object.values(g).filter(function(x) { return x.length === 1; });
+  tabGroups = dupGroups.concat(sg);
+}
+
+function changeGroupBy(gb) {
+  currentGroupBy = gb;
+  browser.runtime.sendMessage({ type: 'setGroupBy', groupBy: gb }, function() {});
+  buildGroups();
+  render();
 }
 
 function closeGroup(gi) {
   var g = tabGroups[gi];
   if (!g || g.length <= 1) return;
   var ids = g.slice(1).map(function(t) { return t.id; });
-  browser.runtime.sendMessage({ type: 'closeTabs', ids: ids }, function() {
-    setTimeout(loadTabsFromBackground, 300);
-  });
+  browser.tabs.remove(ids).then(function() { setTimeout(loadTabs, 300); });
 }
 
 function closeSingleTab(id) {
-  browser.runtime.sendMessage({ type: 'closeTab', id: id }, function() {
-    setTimeout(loadTabsFromBackground, 300);
-  });
+  browser.tabs.remove(id).then(function() { setTimeout(loadTabs, 300); });
 }
 
 function goToTab(id) {
-  browser.runtime.sendMessage({ type: 'navigate', tabId: id }, function() {});
+  browser.tabs.update(id, { active: true }).catch(function() {});
 }
 
-function showPreview(tab, rect) {
+function showPreview(tabId, title, url, rect) {
   var p = document.getElementById('tab-preview');
   var iw = document.getElementById('preview-img-wrap');
   var img = document.getElementById('preview-img');
   var le = document.getElementById('preview-loading');
   var se = document.getElementById('preview-status');
-  document.getElementById('preview-title').textContent = tab.title || '';
-  document.getElementById('preview-url').textContent = tab.url;
-  le.style.display = 'flex';
-  iw.style.display = 'none';
-  img.src = '';
-
+  document.getElementById('preview-title').textContent = title || '';
+  document.getElementById('preview-url').textContent = url;
+  le.style.display = 'flex'; iw.style.display = 'none'; img.src = '';
+  se.textContent = '加载中...';
   var top = rect.bottom + 8, left = rect.left;
-  if (left + 300 > window.innerWidth - 8) left = window.innerWidth - 300 - 8;
+  if (left + 300 > window.innerWidth - 8) left = window.innerWidth - 308;
   if (left < 8) left = 8;
-  if (top + 220 > window.innerHeight - 8) top = rect.top - 220 - 8;
-  p.style.top = top + 'px';
-  p.style.left = left + 'px';
-  p.style.display = 'block';
-  p.style.opacity = '1';
-
-  var timedOut = false;
-  var timer = setTimeout(function() {
-    timedOut = true;
-    se.textContent = '超时（8秒）';
-    le.style.display = 'flex';
-  }, 8000);
-
-  browser.runtime.sendMessage({ type: 'captureTab', tabId: tab.id }, function(resp) {
+  if (top + 220 > window.innerHeight - 8) top = rect.top - 228;
+  p.style.cssText = 'display:block;opacity:1;top:' + top + 'px;left:' + left + 'px';
+  var done = false;
+  var timer = setTimeout(function() { if (!done) { done = true; se.textContent = '预览超时'; } }, 6000);
+  browser.runtime.sendMessage({ type: 'captureTab', tabId: tabId }, function(resp) {
     clearTimeout(timer);
-    if (timedOut || !resp) return;
-    if (resp.dataUrl) {
+    if (done) return;
+    done = true;
+    if (resp && resp.dataUrl) {
       img.src = resp.dataUrl;
       iw.style.display = 'block';
       le.style.display = 'none';
     } else {
-      se.textContent = resp.error || '无法预览';
+      se.textContent = (resp && resp.error) || '无法预览';
     }
   });
 }
@@ -165,31 +133,20 @@ function render() {
   var tl = document.getElementById('tl');
   var sb = document.getElementById('sb');
   var ha = document.getElementById('ha');
-  var totalDup = dupGroups.reduce ? dupGroups.reduce(function(s, g) { return s + g.length; }, 0) : 0;
+  var totalDup = dupGroups.reduce(function(s, g) { return s + g.length; }, 0);
 
-  // 分组选项 UI
-  var groupOpts = '';
-  GROUPS.forEach(function(g) {
-    groupOpts += '<button class="opt-btn' + (currentGroupBy === g.id ? ' active' : '') + '" data-gb="' + g.id + '" title="' + esc(g.desc) + '">' + g.label + '</button>';
+  var groupOpts = GROUPS.map(function(g) {
+    return '<button class="opt-btn' + (currentGroupBy === g.id ? ' active' : '') + '" data-gb="' + g.id + '" title="' + esc(g.desc) + '">' + g.label + '</button>';
+  }).join('');
+
+  sb.innerHTML = '<div class="group-opts">' + groupOpts + '</div>' +
+    (totalDup === 0
+      ? '<span class="badge badge-green">✅ 无重复</span><span>共 ' + allTabs.length + ' 个标签页</span>'
+      : '<span class="badge badge-red">🔴 ' + dupGroups.length + ' 组重复</span><span>' + totalDup + ' 个重复</span>');
+
+  sb.querySelectorAll('.opt-btn').forEach(function(btn) {
+    btn.onclick = function() { changeGroupBy(btn.dataset.gb); };
   });
-
-  sb.innerHTML = '<div class="group-opts">' + groupOpts + '</div>' + (totalDup === 0
-    ? '<span class="badge badge-green">✅ 无重复</span><span>共 ' + allTabs.length + ' 个标签页</span>'
-    : '<span class="badge badge-red">🔴 ' + dupGroups.length + ' 组重复</span><span>' + totalDup + ' 个重复</span>');
-
-  // 分组按钮事件
-  var optBtns = sb.querySelectorAll('.opt-btn');
-  for (var oi = 0; oi < optBtns.length; oi++) {
-    (function(btn) {
-      btn.onclick = function() {
-        var gb = btn.dataset.gb;
-        // 更新样式
-        optBtns.forEach(function(b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        changeGroupBy(gb);
-      };
-    })(optBtns[oi]);
-  }
 
   if (dupGroups.length > 0) {
     ha.innerHTML = '<button class="btn btn-danger" id="closeAllBtn">关闭全部重复</button><button class="btn btn-ghost" id="collapseBtn">折叠</button>';
@@ -197,7 +154,7 @@ function render() {
     document.getElementById('collapseBtn').onclick = toggleCollapse;
   } else {
     ha.innerHTML = '<button class="btn btn-ghost" id="refreshBtn">刷新</button>';
-    document.getElementById('refreshBtn').onclick = loadTabsFromBackground;
+    document.getElementById('refreshBtn').onclick = loadTabs;
   }
 
   if (tabGroups.length === 0) {
@@ -211,20 +168,17 @@ function render() {
     var isDup = g.length > 1;
     h += '<div class="tab-group' + (isDup ? '' : ' single') + '">';
     h += '<div class="tab-group-header">';
+    h += '<span class="tab-group-title">' + esc(gd(g[0].url)) + ' · ' + esc(g[0].title) + '</span>';
     if (isDup) {
-      h += '<span class="tab-group-title">' + esc(gd(g[0].url)) + ' · ' + esc(g[0].title) + '</span>';
       h += '<span class="tab-group-count">×' + g.length + '</span>';
       h += '<button class="btn btn-danger btn-small close-group-btn" data-gi="' + gi + '">关闭重复</button>';
-    } else {
-      h += '<span class="tab-group-title">' + esc(gd(g[0].url)) + ' · ' + esc(g[0].title) + '</span>';
     }
     h += '</div><div class="tab-group-items">';
     for (var ti = 0; ti < g.length; ti++) {
       var t = g[ti];
-      var isActive = t.active;
-      h += '<div class="tab-item' + (isActive ? ' active' : '') + '" data-id="' + t.id + '" data-wa="' + isActive + '">' +
-        '<img class="tab-favicon" src="' + (t.favIconUrl || '') + '" onerror="this.style.display=\'none\'">' +
-        '<div class="tab-info"><div class="tab-title">' + esc(t.title) + (isActive ? ' <span class="active-tag">当前</span>' : '') + '</div>' +
+      h += '<div class="tab-item' + (t.active ? ' active' : '') + '" data-id="' + t.id + '">' +
+        '<img class="tab-favicon" src="' + esc(t.favIconUrl || '') + '" onerror="this.style.display=\'none\'">' +
+        '<div class="tab-info"><div class="tab-title">' + esc(t.title) + (t.active ? ' <span class="active-tag">当前</span>' : '') + '</div>' +
         '<div class="tab-url">' + esc(gd(t.url)) + '</div></div>' +
         '<div class="tab-actions"><button class="close-btn close-single-btn">✕</button></div></div>';
     }
@@ -232,63 +186,43 @@ function render() {
   }
   tl.innerHTML = h;
 
-  // 关闭组按钮
-  var btns = tl.querySelectorAll('.close-group-btn');
-  for (var i = 0; i < btns.length; i++) {
-    (function(btn) {
-      btn.onclick = function(e) { e.stopPropagation(); closeGroup(+btn.dataset.gi); };
-    })(btns[i]);
-  }
+  tl.querySelectorAll('.close-group-btn').forEach(function(btn) {
+    btn.onclick = function(e) { e.stopPropagation(); closeGroup(+btn.dataset.gi); };
+  });
 
-  // 每行事件
-  var items = tl.querySelectorAll('.tab-item');
-  for (var j = 0; j < items.length; j++) {
-    (function(item) {
-      var id = +item.dataset.id;
-      item.onclick = function(e) {
-        if (e.target.classList.contains('close-single-btn')) return;
-        goToTab(id);
-      };
-      var closeBtn = item.querySelector('.close-single-btn');
-      if (closeBtn) {
-        closeBtn.onclick = function(e) { e.stopPropagation(); closeSingleTab(id); };
-      }
-      var timer = null;
-      item.onmouseenter = function() {
-        var rect = item.getBoundingClientRect();
-        timer = setTimeout(function() {
-          showPreview({ id: id, url: item.querySelector('.tab-url').textContent, title: item.querySelector('.tab-title').textContent }, rect);
-        }, 500);
-      };
-      item.onmouseleave = function() { clearTimeout(timer); hidePreview(); };
-    })(items[j]);
-  }
+  tl.querySelectorAll('.tab-item').forEach(function(item) {
+    var id = +item.dataset.id;
+    var tabData = null;
+    for (var i = 0; i < allTabs.length; i++) { if (allTabs[i].id === id) { tabData = allTabs[i]; break; } }
+    item.onclick = function(e) { if (e.target.classList.contains('close-single-btn')) return; goToTab(id); };
+    item.querySelector('.close-single-btn').onclick = function(e) { e.stopPropagation(); closeSingleTab(id); };
+    var hoverTimer = null;
+    item.onmouseenter = function() {
+      var rect = item.getBoundingClientRect();
+      hoverTimer = setTimeout(function() {
+        if (tabData) showPreview(id, tabData.title, tabData.url, rect);
+      }, 500);
+    };
+    item.onmouseleave = function() { clearTimeout(hoverTimer); hidePreview(); };
+  });
 }
 
 function closeAllDup() {
   var ids = [];
-  dupGroups.forEach(function(g) {
-    g.slice(1).forEach(function(t) { ids.push(t.id); });
-  });
-  if (ids.length > 0) {
-    browser.runtime.sendMessage({ type: 'closeTabs', ids: ids }, function() {
-      setTimeout(loadTabsFromBackground, 300);
-    });
-  }
+  dupGroups.forEach(function(g) { g.slice(1).forEach(function(t) { ids.push(t.id); }); });
+  if (ids.length > 0) browser.tabs.remove(ids).then(function() { setTimeout(loadTabs, 300); });
 }
 
 var collapsed = false;
 function toggleCollapse() {
-  var items = document.getElementById('tl').querySelectorAll('.tab-group-items');
   collapsed = !collapsed;
-  for (var i = 0; i < items.length; i++) {
-    items[i].style.display = collapsed ? 'none' : '';
-  }
+  document.getElementById('tl').querySelectorAll('.tab-group-items').forEach(function(el) {
+    el.style.display = collapsed ? 'none' : '';
+  });
   var btn = document.getElementById('collapseBtn');
   if (btn) btn.textContent = collapsed ? '展开' : '折叠';
 }
 
-// 启动
-loadTabsFromBackground();
+loadTabs();
 
 })();

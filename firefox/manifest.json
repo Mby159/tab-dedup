@@ -23,6 +23,5 @@
   },
   "icons": {
     "48": "icons/icon-48.svg"
-  },
-  "content_security_policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+  }
 }
