@@ -72,9 +72,11 @@ body{width:460px;max-height:640px;font-family:-apple-system,BlinkMacSystemFont,'
   <div id="preview-info"><div id="preview-title"></div><div id="preview-url"></div></div>
 </div>
 <script>
-// Tab Dedup popup.js v4.3 - 内联版
+// Tab Dedup popup.js v4.4 - 内联版
 (function() {
 'use strict';
+
+alert('[Tab Dedup] popup JS 已启动');
 
 var allTabs = [], tabGroups = [], dupGroups = [], currentGroupBy = 'full';
 var GROUPS = [
@@ -108,9 +110,19 @@ function esc(s) {
 }
 
 function loadTabs() {
+  console.log('[Tab Dedup] loadTabs 开始');
+  document.getElementById('sb').innerHTML = '<span>正在连接 background...</span>';
+  
+  var timeout = setTimeout(function() {
+    console.error('[Tab Dedup] sendMessage 超时');
+    document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>连接 background 超时，请重新加载插件</div></div>';
+  }, 5000);
+  
   browser.runtime.sendMessage({ type: 'refresh' }, function(resp) {
+    clearTimeout(timeout);
+    console.log('[Tab Dedup] 收到响应:', resp, 'lastError:', browser.runtime.lastError);
     if (browser.runtime.lastError || !resp || !resp.tabs) {
-      document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>获取失败，请重新加载插件</div></div>';
+      document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>获取失败: ' + (browser.runtime.lastError ? browser.runtime.lastError.message : '无响应') + '</div></div>';
       return;
     }
     currentGroupBy = resp.groupBy || 'full';
