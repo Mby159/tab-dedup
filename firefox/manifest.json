@@ -25,3 +25,4 @@
     "48": "icons/icon-48.svg"
   },
   "content_security_policy": "script-src 'self' 'unsafe-inline'; object-src 'self'"
+}
