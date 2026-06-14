@@ -43,6 +43,19 @@ async function extensionId(context) {
   return match[1];
 }
 
+async function saveEvidence(page, name) {
+  const base = path.join(artifactDir, name);
+  const text = await page.locator('body').innerText().catch((error) => `innerText failed: ${error.message}`);
+  const html = await page.content().catch((error) => `content failed: ${error.message}`);
+  fs.writeFileSync(`${base}.txt`, text);
+  fs.writeFileSync(`${base}.html`, html);
+  try {
+    await page.screenshot({ path: `${base}.png` });
+  } catch (error) {
+    fs.writeFileSync(`${base}.screenshot-error.txt`, error.message);
+  }
+}
+
 async function main() {
   fs.mkdirSync(artifactDir, { recursive: true });
   const executablePath = chromeBinary();
@@ -83,13 +96,13 @@ async function main() {
     const groupCount = await popup.locator('.tab-group:not(.single)').count();
     if (groupCount < 1) throw new Error('expected at least one duplicate group');
 
-    await popup.screenshot({ path: path.join(artifactDir, 'tab-dedup-popup-duplicates.png') });
+    await saveEvidence(popup, 'tab-dedup-popup-duplicates');
 
     await popup.locator('.close-group-btn').first().click();
     await popup.waitForTimeout(800);
     const pages = context.pages().filter((p) => !p.url().startsWith('chrome-extension://'));
     if (pages.length > 3) throw new Error(`expected duplicate close to reduce tabs, pages=${pages.length}`);
-    await popup.screenshot({ path: path.join(artifactDir, 'tab-dedup-popup-after-close.png') });
+    await saveEvidence(popup, 'tab-dedup-popup-after-close');
 
     console.log('interaction smoke passed: duplicate group rendered and close action executed');
   } finally {
