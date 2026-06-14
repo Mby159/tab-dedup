@@ -2,8 +2,6 @@
 (function() {
 'use strict';
 
-alert('[Tab Dedup] popup JS 已启动');
-
 var allTabs = [], tabGroups = [], dupGroups = [], currentGroupBy = 'full';
 var GROUPS = [
   { id: 'full', label: '完整 URL', desc: '完全相同的页面' },
@@ -44,17 +42,20 @@ function loadTabs() {
     document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>连接 background 超时，请重新加载插件</div></div>';
   }, 5000);
   
-  browser.runtime.sendMessage({ type: 'refresh' }, function(resp) {
+  browser.runtime.sendMessage({ type: 'refresh' }).then(function(resp) {
     clearTimeout(timeout);
-    console.log('[Tab Dedup] 收到响应:', resp, 'lastError:', browser.runtime.lastError);
-    if (browser.runtime.lastError || !resp || !resp.tabs) {
-      document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>获取失败: ' + (browser.runtime.lastError ? browser.runtime.lastError.message : '无响应') + '</div></div>';
+    console.log('[Tab Dedup] 收到响应:', resp);
+    if (!resp || !resp.tabs) {
+      document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>获取失败: 无响应</div></div>';
       return;
     }
     currentGroupBy = resp.groupBy || 'full';
     allTabs = resp.tabs.filter(function(t) { return t.url && !t.url.startsWith('about:') && !t.url.startsWith('moz-extension://'); });
     buildGroups();
     render();
+  }).catch(function(err) {
+    clearTimeout(timeout);
+    document.getElementById('tl').innerHTML = '<div class=empty-state><div class=icon>⚠️</div><div class=msg>获取失败: ' + esc(err.message) + '</div></div>';
   });
 }
 
@@ -72,7 +73,7 @@ function buildGroups() {
 
 function changeGroupBy(gb) {
   currentGroupBy = gb;
-  browser.runtime.sendMessage({ type: 'setGroupBy', groupBy: gb }, function() {});
+  browser.runtime.sendMessage({ type: 'setGroupBy', groupBy: gb }).catch(function() {});
   buildGroups();
   render();
 }
@@ -109,7 +110,7 @@ function showPreview(tabId, title, url, rect) {
   p.style.cssText = 'display:block;opacity:1;top:' + top + 'px;left:' + left + 'px';
   var done = false;
   var timer = setTimeout(function() { if (!done) { done = true; se.textContent = '预览超时'; } }, 6000);
-  browser.runtime.sendMessage({ type: 'captureTab', tabId: tabId }, function(resp) {
+  browser.runtime.sendMessage({ type: 'captureTab', tabId: tabId }).then(function(resp) {
     clearTimeout(timer);
     if (done) return;
     done = true;
@@ -120,6 +121,11 @@ function showPreview(tabId, title, url, rect) {
     } else {
       se.textContent = (resp && resp.error) || '无法预览';
     }
+  }).catch(function(err) {
+    clearTimeout(timer);
+    if (done) return;
+    done = true;
+    se.textContent = err.message || '无法预览';
   });
 }
 
