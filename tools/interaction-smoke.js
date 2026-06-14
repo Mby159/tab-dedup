@@ -83,13 +83,13 @@ async function main() {
     const groupCount = await popup.locator('.tab-group:not(.single)').count();
     if (groupCount < 1) throw new Error('expected at least one duplicate group');
 
-    await popup.screenshot({ path: path.join(artifactDir, 'tab-dedup-popup-duplicates.png'), fullPage: true });
+    await popup.screenshot({ path: path.join(artifactDir, 'tab-dedup-popup-duplicates.png') });
 
     await popup.locator('.close-group-btn').first().click();
     await popup.waitForTimeout(800);
     const pages = context.pages().filter((p) => !p.url().startsWith('chrome-extension://'));
     if (pages.length > 3) throw new Error(`expected duplicate close to reduce tabs, pages=${pages.length}`);
-    await popup.screenshot({ path: path.join(artifactDir, 'tab-dedup-popup-after-close.png'), fullPage: true });
+    await popup.screenshot({ path: path.join(artifactDir, 'tab-dedup-popup-after-close.png') });
 
     console.log('interaction smoke passed: duplicate group rendered and close action executed');
   } finally {
